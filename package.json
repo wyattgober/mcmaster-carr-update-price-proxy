@@ -1,0 +1,12 @@
+{
+  "name": "mcmaster-carr-proxy",
+  "version": "1.0.0",
+  "description": "Vercel serverless proxy for McMaster-Carr API with client certificate and API key auth",
+  "engines": {
+    "node": "20.x"
+  },
+  "scripts": {
+    "dev": "vercel dev",
+    "test:prod": "bash scripts/test-prod.sh"
+  }
+}
