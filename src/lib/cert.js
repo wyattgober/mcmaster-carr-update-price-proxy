@@ -41,7 +41,11 @@ function getCertificate() {
       throw new Error('MCMASTER_CERT_BASE64 decoded to empty buffer');
     }
   } else {
-    const resolved = path.resolve(mcmasterCertPath);
+    let resolved = path.resolve(mcmasterCertPath);
+    if (!fs.existsSync(resolved) && !path.isAbsolute(mcmasterCertPath)) {
+      const fromApi = path.resolve(process.cwd(), '..', mcmasterCertPath);
+      if (fs.existsSync(fromApi)) resolved = fromApi;
+    }
     if (!fs.existsSync(resolved)) {
       throw new Error('MCMASTER_CERT_PATH file not found: ' + resolved);
     }

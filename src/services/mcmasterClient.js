@@ -17,13 +17,15 @@ function NotSubscribedError(message, statusCode, details) {
 
 async function login() {
   const config = getConfig();
+  const username = config.mcmasterUsername != null ? String(config.mcmasterUsername).trim() : '';
+  const password = config.mcmasterPassword != null ? String(config.mcmasterPassword).trim() : '';
   const path = config.mcmasterApiBasePath + '/login';
   const body = JSON.stringify({
-    UserName: config.mcmasterUsername,
-    Password: config.mcmasterPassword,
+    UserName: username,
+    Password: password,
   });
 
-  logger.info('McMaster login attempted');
+  logger.info('McMaster login attempted', 'username length', username.length, 'password length', password.length);
 
   const res = await request({
     host: config.mcmasterApiHost,
@@ -74,9 +76,11 @@ async function getPrice(partNumber, authToken) {
   });
 
   if (res.statusCode === 403 || res.statusCode === 404) {
-    const msg = (res.body && (res.body.message || res.body.error)) || res.raw || '';
-    const lower = String(msg).toLowerCase();
+    const desc = (res.body && (res.body.ErrorDescription || res.body.ErrorMessage || res.body.message || res.body.error)) || res.raw || '';
+    const lower = String(desc).toLowerCase();
+    const isNotSubscribed = res.body && res.body.ErrorMessage === 'NOT_SUBSCRIBED_TO_PRODUCT';
     if (
+      isNotSubscribed ||
       lower.includes('subscrib') ||
       lower.includes('not found') ||
       lower.includes('not available') ||
@@ -102,17 +106,23 @@ async function getPrice(partNumber, authToken) {
   return res.body;
 }
 
-async function addProduct(partNumber) {
+async function addProduct(partNumber, authToken) {
   const config = getConfig();
-  const path = '/' + String(partNumber).trim();
+  const path = config.mcmasterApiBasePath + '/products';
+  const body = JSON.stringify({
+    URL: 'https://mcmaster.com/' + String(partNumber).trim(),
+  });
 
   logger.info('McMaster Add Product', partNumber);
 
   const res = await request({
-    host: config.mcmasterWebHost,
+    host: config.mcmasterApiHost,
     path,
-    method: 'GET',
-    headers: {},
+    method: 'PUT',
+    body,
+    headers: {
+      Authorization: 'Bearer ' + authToken,
+    },
   });
 
   if (res.statusCode >= 400) {

@@ -49,7 +49,7 @@ async function getPriceForPart(partNumber, authToken) {
     rawBreaks = await getPrice(partNumber, authToken);
   } catch (err) {
     if (err.isNotSubscribed) {
-      await addProduct(partNumber);
+      await addProduct(partNumber, authToken);
       rawBreaks = await getPrice(partNumber, authToken);
     } else {
       throw err;

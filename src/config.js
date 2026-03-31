@@ -12,6 +12,8 @@ const LOG_LEVEL = (process.env.LOG_LEVEL || 'info').toLowerCase();
 const certBase64 = process.env.MCMASTER_CERT_BASE64;
 const certPath = process.env.MCMASTER_CERT_PATH;
 const certPassword = process.env.MCMASTER_CERT_PASSWORD;
+const tlsRejectUnauthorized = process.env.MCMASTER_TLS_REJECT_UNAUTHORIZED;
+const rejectUnauthorized = tlsRejectUnauthorized !== 'false' && tlsRejectUnauthorized !== '0';
 
 function getConfig() {
   return {
@@ -25,6 +27,7 @@ function getConfig() {
     mcmasterApiBasePath: MCMASTER_API_BASE_PATH,
     mcmasterRequestTimeoutMs: MCMASTER_REQUEST_TIMEOUT_MS,
     mcmasterWebHost: 'www.mcmaster.com',
+    mcmasterRejectUnauthorized: rejectUnauthorized,
     logLevel: LOG_LEVEL,
   };
 }

@@ -31,7 +31,7 @@ function request(options) {
     },
     pfx: cert.pfx,
     passphrase: cert.passphrase,
-    rejectUnauthorized: true,
+    rejectUnauthorized: config.mcmasterRejectUnauthorized,
   };
 
   if (body != null && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
