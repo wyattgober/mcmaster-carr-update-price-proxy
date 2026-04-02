@@ -1,9 +1,9 @@
 /**
- * McMaster API client: login, getPrice, addProduct. All requests use client cert via shared HTTPS helper.
+ * McMaster API client: login, getPrice, getProduct, getImage, addProduct. All requests use client cert via shared HTTPS helper.
  */
 
 const { getConfig } = require('../config');
-const { request } = require('../lib/http');
+const { request, requestBinary } = require('../lib/http');
 const logger = require('../lib/logger');
 
 function NotSubscribedError(message, statusCode, details) {
@@ -13,6 +13,33 @@ function NotSubscribedError(message, statusCode, details) {
   err.details = details;
   err.isNotSubscribed = true;
   return err;
+}
+
+/** Shared with getPrice / getProduct for 403/404 subscription detection (keep in sync). */
+function maybeNotSubscribedError(statusCode, body, raw) {
+  if (statusCode !== 403 && statusCode !== 404) return null;
+  const desc = (body && (body.ErrorDescription || body.ErrorMessage || body.message || body.error)) || raw || '';
+  const lower = String(desc).toLowerCase();
+  const isNotSubscribed = body && body.ErrorMessage === 'NOT_SUBSCRIBED_TO_PRODUCT';
+  if (
+    isNotSubscribed ||
+    lower.includes('subscrib') ||
+    lower.includes('not found') ||
+    lower.includes('not available') ||
+    statusCode === 404
+  ) {
+    return NotSubscribedError('Product may require subscription', statusCode, body || raw);
+  }
+  return null;
+}
+
+function parseJsonBuffer(buffer) {
+  if (!buffer || buffer.length === 0) return null;
+  try {
+    return JSON.parse(buffer.toString('utf8'));
+  } catch (_) {
+    return null;
+  }
 }
 
 async function login() {
@@ -75,24 +102,8 @@ async function getPrice(partNumber, authToken) {
     },
   });
 
-  if (res.statusCode === 403 || res.statusCode === 404) {
-    const desc = (res.body && (res.body.ErrorDescription || res.body.ErrorMessage || res.body.message || res.body.error)) || res.raw || '';
-    const lower = String(desc).toLowerCase();
-    const isNotSubscribed = res.body && res.body.ErrorMessage === 'NOT_SUBSCRIBED_TO_PRODUCT';
-    if (
-      isNotSubscribed ||
-      lower.includes('subscrib') ||
-      lower.includes('not found') ||
-      lower.includes('not available') ||
-      res.statusCode === 404
-    ) {
-      throw NotSubscribedError(
-        'Product may require subscription',
-        res.statusCode,
-        res.body || res.raw
-      );
-    }
-  }
+  const subErr = maybeNotSubscribedError(res.statusCode, res.body, res.raw);
+  if (subErr) throw subErr;
 
   if (res.statusCode !== 200) {
     const details = res.body && (res.body.message || res.body.error) || res.raw;
@@ -104,6 +115,82 @@ async function getPrice(partNumber, authToken) {
   }
 
   return res.body;
+}
+
+async function getProduct(partNumber, authToken) {
+  const config = getConfig();
+  const path = config.mcmasterApiBasePath + '/products/' + encodeURIComponent(partNumber);
+
+  const res = await request({
+    host: config.mcmasterApiHost,
+    path,
+    method: 'GET',
+    headers: {
+      Authorization: 'Bearer ' + authToken,
+    },
+  });
+
+  const subErr = maybeNotSubscribedError(res.statusCode, res.body, res.raw);
+  if (subErr) throw subErr;
+
+  if (res.statusCode !== 200) {
+    const details = res.body && (res.body.message || res.body.error) || res.raw;
+    throw new Error(details ? `Product lookup failed: ${details}` : `Product lookup failed with status ${res.statusCode}`);
+  }
+
+  if (!res.body || typeof res.body !== 'object') {
+    throw new Error('Product response is not an object');
+  }
+
+  return res.body;
+}
+
+/**
+ * Image link Value from product Links, e.g. /v1/images/contents/gfx/...
+ */
+function extractImagePathFromProduct(product) {
+  if (!product || typeof product !== 'object') {
+    throw new Error('No image link for product');
+  }
+  const links = product.Links ?? product.links;
+  if (!Array.isArray(links)) {
+    throw new Error('No image link for product');
+  }
+  const entry = links.find(function (l) {
+    if (!l || typeof l !== 'object') return false;
+    const key = l.Key ?? l.key;
+    return key === 'Image' || (typeof key === 'string' && key.toLowerCase() === 'image');
+  });
+  const value = entry && (entry.Value ?? entry.value);
+  if (!value || typeof value !== 'string' || !value.trim()) {
+    throw new Error('No image link for product');
+  }
+  return value.trim();
+}
+
+async function getImage(imageRequestPath, authToken) {
+  const config = getConfig();
+  const path = imageRequestPath.startsWith('/') ? imageRequestPath : '/' + imageRequestPath;
+
+  const res = await requestBinary({
+    host: config.mcmasterApiHost,
+    path,
+    method: 'GET',
+    headers: {
+      Authorization: 'Bearer ' + authToken,
+    },
+  });
+
+  if (res.statusCode !== 200) {
+    const parsed = parseJsonBuffer(res.body);
+    const details =
+      (parsed && (parsed.ErrorDescription || parsed.ErrorMessage)) ||
+      (res.body && res.body.length ? res.body.toString('utf8').slice(0, 500) : '');
+    throw new Error(details ? `Image fetch failed: ${details}` : `Image fetch failed with status ${res.statusCode}`);
+  }
+
+  const contentType = res.headers['content-type'] || res.headers['Content-Type'] || 'application/octet-stream';
+  return { buffer: res.body, contentType };
 }
 
 async function addProduct(partNumber, authToken) {
@@ -132,4 +219,12 @@ async function addProduct(partNumber, authToken) {
   return { statusCode: res.statusCode, body: res.body };
 }
 
-module.exports = { login, getPrice, addProduct, NotSubscribedError };
+module.exports = {
+  login,
+  getPrice,
+  getProduct,
+  getImage,
+  extractImagePathFromProduct,
+  addProduct,
+  NotSubscribedError,
+};

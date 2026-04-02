@@ -36,3 +36,12 @@ curl -s -X POST "$BASE_URL/api/mcmaster/price" \
   -H "Content-Type: application/json" \
   -d "{\"authToken\":\"$TOKEN\",\"partNumber\":\"91290A115\"}"
 echo ""
+echo ""
+
+echo "→ POST $BASE_URL/api/mcmaster/image (partNumber: 91290A115)"
+curl -s -X POST "$BASE_URL/api/mcmaster/image" \
+  -H "x-api-key: $PROXY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"authToken\":\"$TOKEN\",\"partNumber\":\"91290A115\"}" | head -c 400
+echo ""
+echo ""

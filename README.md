@@ -1,6 +1,6 @@
 # McMaster-Carr API Proxy
 
-A secure, Vercel-ready serverless proxy for the McMaster-Carr API. It authenticates with McMaster using a client certificate and username/password, secures proxy endpoints with an internal API key, and exposes health, login, and single-part price endpoints.
+A secure, Vercel-ready serverless proxy for the McMaster-Carr API. It authenticates with McMaster using a client certificate and username/password, secures proxy endpoints with an internal API key, and exposes health, login, single-part price, and single-part image endpoints.
 
 **Shaped for Vercel serverless deployment.** No Express, no long-running process, no database, no UI.
 
@@ -9,6 +9,7 @@ A secure, Vercel-ready serverless proxy for the McMaster-Carr API. It authentica
 - **Certificate auth**: Every outbound request to McMaster uses a client certificate (.pfx).
 - **Login**: Obtains an auth token via McMaster’s login API; token typically expires in ~24 hours.
 - **Price**: Looks up price for one part number; optionally subscribes the part if McMaster requires it, then retries once. Returns one normalized price (lowest minimum-quantity break).
+- **Image**: Fetches product info to resolve the Image link, then downloads the image bytes; same subscribe-and-retry behavior as price. Returns base64-encoded image data and `Content-Type`.
 - **API key**: All `/api/mcmaster/*` routes require an `x-api-key` header matching `PROXY_API_KEY`.
 
 ## Required environment variables
@@ -119,6 +120,34 @@ curl -X POST http://localhost:3000/api/mcmaster/price \
 
 **Errors**: 400 (missing/invalid body, authToken, or partNumber), 401 (invalid/missing API key), 404 (no price data), 405 (wrong method), 502/504 (upstream/timeout), 500 (config error).
 
+---
+
+### POST /api/mcmaster/image
+
+Requires `x-api-key`. Body: `authToken` and `partNumber`. Resolves the product’s Image URL from McMaster product metadata, then returns the image (same subscription flow as price: add product and retry once if needed).
+
+**Example**
+
+```bash
+curl -X POST http://localhost:3000/api/mcmaster/image \
+  -H "x-api-key: YOUR_PROXY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"authToken":"YOUR_MCMASTER_TOKEN","partNumber":"91290A115"}'
+```
+
+**Response (200)**
+
+```json
+{
+  "partNumber": "91290A115",
+  "contentType": "image/png",
+  "contentLength": 12345,
+  "imageBase64": "..."
+}
+```
+
+**Errors**: 400 (missing/invalid body, authToken, or partNumber), 401 (invalid/missing API key), 404 (no image link for part), 405 (wrong method), 502/504 (upstream/timeout), 500 (config error).
+
 ## Request/response shapes
 
 - **Error shape** (all error responses):
@@ -139,16 +168,18 @@ curl -X POST http://localhost:3000/api/mcmaster/price \
 
 - **Login**: Response includes fields such as `AuthToken` and `ExpirationTS` (or similar); the proxy maps these to `authToken` and `tokenExpiresAt`.
 - **Price**: Response is a JSON array of price breaks with `Amount`, `MinimumQuantity`, `UnitOfMeasure` (or common variants). The proxy tolerates slight field name differences.
-- **Not subscribed**: Detected by HTTP status (e.g. 403/404) and/or error message text. The proxy then calls Add Product (`https://www.mcmaster.com/{partNumber}` with client cert) and retries the price lookup **once**.
+- **Not subscribed**: Detected by HTTP status (e.g. 403/404) and/or error message text. The proxy then calls Add Product (`https://www.mcmaster.com/{partNumber}` with client cert) and retries the product/price lookup **once** (same for image after resolving the Image link).
+- **Image**: Product metadata includes a `Links` entry with `Key: "Image"`; the proxy `GET`s that path on `api.mcmaster.com` with the same bearer token and client certificate.
 - No token caching in the proxy; the client should obtain a token via `/api/mcmaster/login` and reuse it until it expires.
 
 ## Project structure
 
-- `api/` – Vercel serverless handlers: `health.js`, `mcmaster/login.js`, `mcmaster/price.js`
+- `api/` – Vercel serverless handlers: `health.js`, `mcmaster/login.js`, `mcmaster/price.js`, `mcmaster/image.js`
 - `src/config.js` – Env and config
 - `src/lib/` – `cert.js`, `errors.js`, `http.js`, `logger.js`, `response.js`
 - `src/middleware/requireApiKey.js` – API key check for mcmaster routes
-- `src/services/mcmasterClient.js` – McMaster login, getPrice, addProduct
+- `src/services/mcmasterClient.js` – McMaster login, getPrice, getProduct, getImage, addProduct
 - `src/services/mcmasterPrice.js` – Price orchestration and normalization
+- `src/services/mcmasterImage.js` – Image orchestration (product link + binary fetch)
 
 This project is intended for deployment as Vercel serverless functions; it does not include deployment steps beyond configuring env and certificate in the Vercel dashboard.
