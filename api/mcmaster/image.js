@@ -56,6 +56,10 @@ module.exports = function handler(req, res) {
           errorResponse(res, 404, 'No image for part', partNumber);
           return;
         }
+        if (err.isNotSubscribed) {
+          errorResponse(res, 502, 'Still not subscribed after add product; retry or check McMaster limits', err.message);
+          return;
+        }
         logger.error('Image lookup failed', err.message);
         const isConfig = /MCMASTER_CERT|certificate|PROXY_API_KEY|required/i.test(err.message);
         const isTimeout = /timeout/i.test(err.message);

@@ -5,22 +5,16 @@
 const mcmasterClient = require('./mcmasterClient');
 
 async function getImageForPart(partNumber, authToken) {
-  const { getProduct, getImage, extractImagePathFromProduct, addProduct } = mcmasterClient;
+  const { getProduct, getImage, extractImagePathFromProduct, withSubscribeRetry } = mcmasterClient;
 
-  let product;
-  try {
-    product = await getProduct(partNumber, authToken);
-  } catch (err) {
-    if (err.isNotSubscribed) {
-      await addProduct(partNumber, authToken);
-      product = await getProduct(partNumber, authToken);
-    } else {
-      throw err;
-    }
-  }
+  const product = await withSubscribeRetry(partNumber, authToken, function getProductOnce() {
+    return getProduct(partNumber, authToken);
+  });
 
   const imagePath = extractImagePathFromProduct(product);
-  const { buffer, contentType } = await getImage(imagePath, authToken);
+  const { buffer, contentType } = await withSubscribeRetry(partNumber, authToken, function getImageOnce() {
+    return getImage(imagePath, authToken);
+  });
 
   return {
     partNumber,

@@ -3,7 +3,6 @@
  */
 
 const mcmasterClient = require('./mcmasterClient');
-const logger = require('../lib/logger');
 
 function normalizePriceBreaks(partNumber, rawBreaks) {
   if (!Array.isArray(rawBreaks) || rawBreaks.length === 0) {
@@ -42,19 +41,11 @@ function getMinQty(breakItem) {
 }
 
 async function getPriceForPart(partNumber, authToken) {
-  const { getPrice, addProduct, NotSubscribedError } = mcmasterClient;
+  const { getPrice, withSubscribeRetry } = mcmasterClient;
 
-  let rawBreaks;
-  try {
-    rawBreaks = await getPrice(partNumber, authToken);
-  } catch (err) {
-    if (err.isNotSubscribed) {
-      await addProduct(partNumber, authToken);
-      rawBreaks = await getPrice(partNumber, authToken);
-    } else {
-      throw err;
-    }
-  }
+  const rawBreaks = await withSubscribeRetry(partNumber, authToken, function getPriceOnce() {
+    return getPrice(partNumber, authToken);
+  });
 
   return normalizePriceBreaks(partNumber, rawBreaks);
 }

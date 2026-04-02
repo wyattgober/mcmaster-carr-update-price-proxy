@@ -183,9 +183,12 @@ async function getImage(imageRequestPath, authToken) {
 
   if (res.statusCode !== 200) {
     const parsed = parseJsonBuffer(res.body);
+    const rawStr = res.body && res.body.length ? res.body.toString('utf8') : '';
+    const subErr = maybeNotSubscribedError(res.statusCode, parsed, rawStr);
+    if (subErr) throw subErr;
     const details =
       (parsed && (parsed.ErrorDescription || parsed.ErrorMessage)) ||
-      (res.body && res.body.length ? res.body.toString('utf8').slice(0, 500) : '');
+      rawStr.slice(0, 500);
     throw new Error(details ? `Image fetch failed: ${details}` : `Image fetch failed with status ${res.statusCode}`);
   }
 
@@ -219,6 +222,20 @@ async function addProduct(partNumber, authToken) {
   return { statusCode: res.statusCode, body: res.body };
 }
 
+/**
+ * Run fn(). On NotSubscribedError, addProduct once and retry fn() once (same pattern as price/image orchestration).
+ */
+async function withSubscribeRetry(partNumber, authToken, fn) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!err.isNotSubscribed || attempt === 1) throw err;
+      await addProduct(partNumber, authToken);
+    }
+  }
+}
+
 module.exports = {
   login,
   getPrice,
@@ -226,5 +243,6 @@ module.exports = {
   getImage,
   extractImagePathFromProduct,
   addProduct,
+  withSubscribeRetry,
   NotSubscribedError,
 };
