@@ -1,5 +1,6 @@
 /**
  * Require x-api-key header to match PROXY_API_KEY. Returns 401 JSON if missing or invalid.
+ * Used for all protected vendor routes (e.g. /api/mcmaster/*, /api/mouser/*).
  */
 
 const { getConfig } = require('../config');
