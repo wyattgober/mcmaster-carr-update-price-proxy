@@ -242,6 +242,15 @@ function hasProductPayload(body) {
   return body && typeof body === 'object' && Array.isArray(body.Links) && body.Links.length > 0;
 }
 
+function makeAddProductFailedError(detail) {
+  const detailStr = detail == null ? '' : String(detail);
+  const err = new Error(`Add product failed: ${detailStr}`);
+  if (/Daily product subscription limit|subscription limit reached/i.test(detailStr)) {
+    err.isSubscriptionLimit = true;
+  }
+  return err;
+}
+
 /**
  * GET product; on not-subscribed, PUT add product then use response body if it includes Links (McMaster returns
  * full product JSON on success), otherwise GET product again.
@@ -260,7 +269,7 @@ async function getProductWithSubscribe(partNumber, authToken) {
     if (addRes.statusCode !== 200 && addRes.statusCode !== 201) {
       const detail =
         b && typeof b === 'object' ? b.ErrorDescription || b.ErrorMessage || JSON.stringify(b) : addRes.statusCode;
-      throw new Error(`Add product failed: ${detail}`);
+      throw makeAddProductFailedError(detail);
     }
     return await getProduct(partNumber, authToken);
   }
@@ -275,7 +284,13 @@ async function withSubscribeRetry(partNumber, authToken, fn) {
       return await fn();
     } catch (err) {
       if (!err.isNotSubscribed || attempt === 1) throw err;
-      await addProductWithUrlFallback(partNumber, authToken);
+      const addRes = await addProductWithUrlFallback(partNumber, authToken);
+      if (addRes.statusCode !== 200 && addRes.statusCode !== 201) {
+        const b = addRes.body;
+        const detail =
+          b && typeof b === 'object' ? b.ErrorDescription || b.ErrorMessage || JSON.stringify(b) : addRes.statusCode;
+        throw makeAddProductFailedError(detail);
+      }
     }
   }
 }

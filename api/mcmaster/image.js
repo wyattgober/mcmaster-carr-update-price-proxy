@@ -56,6 +56,13 @@ module.exports = function handler(req, res) {
           errorResponse(res, 404, 'No image for part', partNumber);
           return;
         }
+        if (
+          err.isSubscriptionLimit ||
+          /Daily product subscription limit|subscription limit reached/i.test(String(err.message || ''))
+        ) {
+          errorResponse(res, 429, 'McMaster daily product subscription limit reached', err.message);
+          return;
+        }
         if (err.isNotSubscribed) {
           errorResponse(res, 502, 'Still not subscribed after add product; retry or check McMaster limits', err.message);
           return;

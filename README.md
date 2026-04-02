@@ -118,7 +118,7 @@ curl -X POST http://localhost:3000/api/mcmaster/price \
 }
 ```
 
-**Errors**: 400 (missing/invalid body, authToken, or partNumber), 401 (invalid/missing API key), 404 (no price data), 405 (wrong method), 502/504 (upstream/timeout), 500 (config error).
+**Errors**: 400 (missing/invalid body, authToken, or partNumber), 401 (invalid/missing API key), 404 (no price data), 405 (wrong method), 429 (McMaster daily **add-product** subscription limit reached), 502/504 (upstream/timeout), 500 (config error).
 
 ---
 
@@ -146,7 +146,7 @@ curl -X POST http://localhost:3000/api/mcmaster/image \
 }
 ```
 
-**Errors**: 400 (missing/invalid body, authToken, or partNumber), 401 (invalid/missing API key), 404 (no image link for part), 405 (wrong method), 502/504 (upstream/timeout), 500 (config error).
+**Errors**: 400 (missing/invalid body, authToken, or partNumber), 401 (invalid/missing API key), 404 (no image link for part), 405 (wrong method), 429 (McMaster daily **add-product** subscription limit reached), 502/504 (upstream/timeout), 500 (config error).
 
 ## Request/response shapes
 
@@ -169,6 +169,7 @@ curl -X POST http://localhost:3000/api/mcmaster/image \
 - **Login**: Response includes fields such as `AuthToken` and `ExpirationTS` (or similar); the proxy maps these to `authToken` and `tokenExpiresAt`.
 - **Price**: Response is a JSON array of price breaks with `Amount`, `MinimumQuantity`, `UnitOfMeasure` (or common variants). The proxy tolerates slight field name differences.
 - **Not subscribed**: Detected by HTTP status (e.g. 403/404) and/or error message text. The proxy then calls Add Product (`https://www.mcmaster.com/{partNumber}` with client cert) and retries the product/price lookup **once** (same for image after resolving the Image link).
+- **Daily subscription limit**: McMaster caps how many products you can add per day per account; when that limit is hit, Add Product fails and the proxy returns **429** with `details` from McMaster (see [API limits](https://www.mcmaster.com/help/api/)). Retry the next day, remove unused subscriptions via their API, or contact McMaster.
 - **Image**: Product metadata includes a `Links` entry with `Key: "Image"`; the proxy `GET`s that path on `api.mcmaster.com` with the same bearer token and client certificate.
 - No token caching in the proxy; the client should obtain a token via `/api/mcmaster/login` and reuse it until it expires.
 

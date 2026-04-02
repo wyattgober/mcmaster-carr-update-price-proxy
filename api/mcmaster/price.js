@@ -56,6 +56,13 @@ module.exports = function handler(req, res) {
           errorResponse(res, 404, 'No price data for part', partNumber);
           return;
         }
+        if (
+          err.isSubscriptionLimit ||
+          /Daily product subscription limit|subscription limit reached/i.test(String(err.message || ''))
+        ) {
+          errorResponse(res, 429, 'McMaster daily product subscription limit reached', err.message);
+          return;
+        }
         logger.error('Price lookup failed', err.message);
         const isConfig = /MCMASTER_CERT|certificate|PROXY_API_KEY|required/i.test(err.message);
         const isTimeout = /timeout/i.test(err.message);
