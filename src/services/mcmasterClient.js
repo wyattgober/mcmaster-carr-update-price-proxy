@@ -1,5 +1,5 @@
 /**
- * McMaster API client: login, getPrice, getProduct, getImage, addProduct. All requests use client cert via shared HTTPS helper.
+ * McMaster API client: login, getPrice, getProduct, getProductWithSubscribe, getImage, addProduct. All requests use client cert via shared HTTPS helper.
  */
 
 const { getConfig } = require('../config');
@@ -18,6 +18,7 @@ function NotSubscribedError(message, statusCode, details) {
 /** Shared with getPrice / getProduct for 403/404 subscription detection (keep in sync). */
 function maybeNotSubscribedError(statusCode, body, raw) {
   if (statusCode !== 403 && statusCode !== 404) return null;
+  if (body && body.ErrorMessage === 'EXPIRED_AUTHORIZATION_TOKEN') return null;
   const desc = (body && (body.ErrorDescription || body.ErrorMessage || body.message || body.error)) || raw || '';
   const lower = String(desc).toLowerCase();
   const isNotSubscribed = body && body.ErrorMessage === 'NOT_SUBSCRIBED_TO_PRODUCT';
@@ -196,18 +197,20 @@ async function getImage(imageRequestPath, authToken) {
   return { buffer: res.body, contentType };
 }
 
-async function addProduct(partNumber, authToken) {
+async function addProduct(partNumber, authToken, catalogBaseUrl) {
   const config = getConfig();
-  const path = config.mcmasterApiBasePath + '/products';
+  const apiPath = config.mcmasterApiBasePath + '/products';
+  const base = catalogBaseUrl != null ? catalogBaseUrl : 'https://mcmaster.com/';
+  const normalizedBase = base.endsWith('/') ? base : base + '/';
   const body = JSON.stringify({
-    URL: 'https://mcmaster.com/' + String(partNumber).trim(),
+    URL: normalizedBase + String(partNumber).trim(),
   });
 
-  logger.info('McMaster Add Product', partNumber);
+  logger.info('McMaster Add Product', partNumber, normalizedBase);
 
   const res = await request({
     host: config.mcmasterApiHost,
-    path,
+    path: apiPath,
     method: 'PUT',
     body,
     headers: {
@@ -223,6 +226,47 @@ async function addProduct(partNumber, authToken) {
 }
 
 /**
+ * PUT add product; on 400 BAD_REQUEST retry once with https://www.mcmaster.com/ (catalog URL variant).
+ */
+async function addProductWithUrlFallback(partNumber, authToken) {
+  let res = await addProduct(partNumber, authToken, 'https://mcmaster.com/');
+  if (res.statusCode === 400) {
+    const msg = res.body && res.body.ErrorMessage;
+    logger.warn('McMaster Add Product retry with www', partNumber, msg || '');
+    res = await addProduct(partNumber, authToken, 'https://www.mcmaster.com/');
+  }
+  return res;
+}
+
+function hasProductPayload(body) {
+  return body && typeof body === 'object' && Array.isArray(body.Links) && body.Links.length > 0;
+}
+
+/**
+ * GET product; on not-subscribed, PUT add product then use response body if it includes Links (McMaster returns
+ * full product JSON on success), otherwise GET product again.
+ */
+async function getProductWithSubscribe(partNumber, authToken) {
+  try {
+    return await getProduct(partNumber, authToken);
+  } catch (err) {
+    if (!err.isNotSubscribed) throw err;
+    const addRes = await addProductWithUrlFallback(partNumber, authToken);
+    const b = addRes.body;
+    if (hasProductPayload(b)) {
+      logger.info('McMaster getProduct: using Links from add product response', partNumber);
+      return b;
+    }
+    if (addRes.statusCode !== 200 && addRes.statusCode !== 201) {
+      const detail =
+        b && typeof b === 'object' ? b.ErrorDescription || b.ErrorMessage || JSON.stringify(b) : addRes.statusCode;
+      throw new Error(`Add product failed: ${detail}`);
+    }
+    return await getProduct(partNumber, authToken);
+  }
+}
+
+/**
  * Run fn(). On NotSubscribedError, addProduct once and retry fn() once (same pattern as price/image orchestration).
  */
 async function withSubscribeRetry(partNumber, authToken, fn) {
@@ -231,7 +275,7 @@ async function withSubscribeRetry(partNumber, authToken, fn) {
       return await fn();
     } catch (err) {
       if (!err.isNotSubscribed || attempt === 1) throw err;
-      await addProduct(partNumber, authToken);
+      await addProductWithUrlFallback(partNumber, authToken);
     }
   }
 }
@@ -240,9 +284,11 @@ module.exports = {
   login,
   getPrice,
   getProduct,
+  getProductWithSubscribe,
   getImage,
   extractImagePathFromProduct,
   addProduct,
+  addProductWithUrlFallback,
   withSubscribeRetry,
   NotSubscribedError,
 };

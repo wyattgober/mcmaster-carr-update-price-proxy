@@ -178,7 +178,7 @@ curl -X POST http://localhost:3000/api/mcmaster/image \
 - `src/config.js` – Env and config
 - `src/lib/` – `cert.js`, `errors.js`, `http.js`, `logger.js`, `response.js`
 - `src/middleware/requireApiKey.js` – API key check for mcmaster routes
-- `src/services/mcmasterClient.js` – McMaster login, getPrice, getProduct, getImage, addProduct
+- `src/services/mcmasterClient.js` – McMaster login, getPrice, getProduct, getProductWithSubscribe, getImage, addProduct
 - `src/services/mcmasterPrice.js` – Price orchestration and normalization
 - `src/services/mcmasterImage.js` – Image orchestration (product link + binary fetch)
 
